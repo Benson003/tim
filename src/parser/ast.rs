@@ -1,68 +1,69 @@
-#[derive(Debug)]
-pub enum NodeValue{
+#[derive(Debug, Default, Clone)]
+pub struct Attributes {
+    pub(crate) id: Option<String>,
+    pub(crate) classes: Vec<String>,
+}
+#[derive(Debug, Default, Clone)]
+pub(crate) struct ListItem {
+    pub(crate) attrs: Attributes,
+    pub(crate) children: Vec<Inline>,
+}
+
+#[derive(Debug, Default, Clone)]
+pub(crate) struct Document {
+    pub(crate) children: Vec<Block>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum Block {
+    Paragraph {
+        attrs: Attributes,
+        children: Vec<Inline>,
+    },
+    Header {
+        attrs: Attributes,
+        level: u8,
+        children: Vec<Inline>,
+    },
+    OrderedList {
+        attrs: Attributes,
+        start: usize,
+        children: Vec<ListItem>,
+    },
+    UnorderedList {
+        attrs: Attributes,
+        children: Vec<ListItem>,
+    },
+    CodeBlock {
+        language: Option<String>,
+        code: String,
+    },
+    Note {
+        children: Vec<Block>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum Inline {
+    Image {
+        alt: String,
+        src: String,
+        attrs: Attributes,
+    },
+    Link {
+        url: String,
+        children: Vec<Inline>,
+        attrs: Attributes,
+    },
+    Bold {
+        children: Vec<Inline>,
+    },
+    Italic {
+        children: Vec<Inline>,
+    },
+    InlineCode {
+        code: String,
+    },
+
     Text(String),
-    Number(usize),
-    None
-}
-
-
-pub struct ASTNode{
-    node_type: NodeType,
-    value: NodeValue,
-    parent: Option<Box<ASTNode>>,
-    children: Option<Vec<Box<ASTNode>>>,
-    order: usize,
-}
-
-impl ASTNode {
-    pub fn new(node_type: NodeType, value: NodeValue,parent:ASTNode) -> ASTNode {
-        ASTNode{
-            node_type:node_type,
-            value: value,
-            parent: Some(Box::new(parent)),
-            children:Some(vec![]) ,
-            order: 0
-        }
-    }
-
-    pub fn append_node(&mut self,ast_node:ASTNode){
-        if let Some(children)=&mut self.children{
-            children.push(Box::new(ast_node));
-            self.order = children.len();
-        } 
-    }
-}
-
-#[derive(Debug)]
-pub enum NodeType {
-    Root,
-    Header,
-    Text,
-    UniqueID,
-    Class,
-    Image,
-    Anchor,
-    Italic,
-    Bold,
-    Highlight,
-    CodeBlock,
-    Note,
-    UnorderedList,
-    OrderedList,
-    ListItem,
-    Value,
-}
-
-#[derive(Debug)]
-pub enum State{
-    Default,
-    Header,
-    Text,
-    Bold,
-    Highlight,
-    CodeBlock,
-    Note,
-    OrderedList,
-    UnorderedList,
-    Value,
 }
