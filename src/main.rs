@@ -1,15 +1,15 @@
-mod tokenizer;
 mod cmd;
 mod parser;
+mod tokenizer;
 
-use crate::tokenizer::tokenizer::TokenList;
 use crate::cmd::cmd::load_file_from_args;
-use crate::parser::parser::AST;
+use crate::parser::parser::Parser;
+use crate::tokenizer::tokenizer::TokenList;
 
-fn main(){
+fn main() {
     let source = load_file_from_args().unwrap();
-    //let source = String::from("## Hello World");
-    let mut tokens =TokenList::new();
+    let mut tokens = TokenList::new();
     tokens.tokenize(source.as_str());
-    AST::parse(tokens); 
+    let mut parser = Parser::new(tokens.tokens);
+    println!("{:#?}", parser.parse());
 }
