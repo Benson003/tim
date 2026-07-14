@@ -1,95 +1,116 @@
-use core::{iter::{Iterator}, option::Option::Some};
+use core::{iter::Iterator, option::Option::Some};
 
-
-use crate::tokenizer::tokens::{ Token, CharType, TokenTypes};
-
-
+use crate::tokenizer::tokens::{CharType, Token, TokenTypes};
 
 #[derive(Debug)]
 pub struct TokenList {
     pub tokens: Vec<Token>,
 }
 
-impl  TokenList {
-    pub fn new() -> TokenList{
-        TokenList{
-            tokens: Vec::new(),
-        }
+impl TokenList {
+    pub fn new() -> TokenList {
+        TokenList { tokens: Vec::new() }
     }
-    fn append_tokens(&mut self,token:Token){
+    fn append_tokens(&mut self, token: Token) {
         self.tokens.push(token);
     }
-    pub fn print_tokens(&self){
+    pub fn print_tokens(&self) {
         println!("Tokens: {:?}", self.tokens);
     }
-    pub fn tokenize(&mut self,source :&str){
+    pub fn tokenize(&mut self, source: &str) {
         let mut buffer = String::new();
         let mut chars = source.chars().peekable();
-        while let Some(&ch) = chars.peek(){
-            match CharType::classify_char(ch){
-                CharType::WhiteSpace =>{
+        while let Some(&ch) = chars.peek() {
+            match CharType::classify_char(ch) {
+                CharType::WhiteSpace => {
                     chars.next();
-                    self.append_tokens(Token::new(TokenTypes::WhiteSpace,None));
+                    self.append_tokens(Token::new(TokenTypes::WhiteSpace, Some(" ".to_string())));
                 }
                 CharType::Letter => {
                     buffer.clear();
-                    while let Some(&c) = chars.peek(){
-                        match CharType::classify_char(c){
-                            CharType::Letter=>{
+                    while let Some(&c) = chars.peek() {
+                        match CharType::classify_char(c) {
+                            CharType::Letter => {
                                 buffer.push(c);
                                 chars.next();
                             }
-                            _=>break
+                            _ => break,
                         }
                     }
                     let value = std::mem::take(&mut buffer);
                     self.append_tokens(Token::new(TokenTypes::Text, Some(value)));
                 }
-                CharType::Special =>{
+                CharType::Special => {
                     buffer.clear();
-                    while let Some(&c) = chars.peek(){
-                        if CharType::classify_char(c) != CharType::Special{break;}
+                    while let Some(&c) = chars.peek() {
+                        if CharType::classify_char(c) != CharType::Special {
+                            break;
+                        }
                         match c {
-                            '#' =>{
+                            '#' => {
                                 chars.next();
-                                self.append_tokens(Token::new(TokenTypes::Header, None));
+                                self.append_tokens(Token::new(
+                                    TokenTypes::Header,
+                                    Some("#".to_string()),
+                                ));
                             }
                             '[' => {
                                 chars.next();
-                                self.append_tokens(Token::new(TokenTypes::AnchorValueStart, None));
+                                self.append_tokens(Token::new(
+                                    TokenTypes::AnchorValueStart,
+                                    Some("[".to_string()),
+                                ));
                             }
                             ']' => {
                                 chars.next();
-                                self.append_tokens(Token::new(TokenTypes::AnchorValueEnd, None));
+                                self.append_tokens(Token::new(
+                                    TokenTypes::AnchorValueEnd,
+                                    Some("]".to_string()),
+                                ));
                             }
                             '(' => {
                                 chars.next();
-                                self.append_tokens(Token::new(TokenTypes::AnchorURLStart, None));
-
+                                self.append_tokens(Token::new(
+                                    TokenTypes::AnchorURLStart,
+                                    Some("(".to_string()),
+                                ));
                             }
                             ')' => {
                                 chars.next();
-                                self.append_tokens(Token::new(TokenTypes::AnchorURLEnd, None));
-
+                                self.append_tokens(Token::new(
+                                    TokenTypes::AnchorURLEnd,
+                                    Some(")".to_string()),
+                                ));
                             }
                             '<' => {
                                 chars.next();
-                                self.append_tokens(Token::new(TokenTypes::UniqueIDBegin, None));
-
+                                self.append_tokens(Token::new(
+                                    TokenTypes::UniqueIDBegin,
+                                    Some("<".to_string()),
+                                ));
                             }
                             '>' => {
                                 chars.next();
-                                self.append_tokens(Token::new(TokenTypes::UniqueIDEnd, None));
+                                self.append_tokens(Token::new(
+                                    TokenTypes::UniqueIDEnd,
+                                    Some(">".to_string()),
+                                ));
                             }
                             '{' => {
                                 chars.next();
-                                self.append_tokens(Token::new(TokenTypes::ClassBegin, None));
+                                self.append_tokens(Token::new(
+                                    TokenTypes::ClassBegin,
+                                    Some("{".to_string()),
+                                ));
                             }
                             '}' => {
                                 chars.next();
-                                self.append_tokens(Token::new(TokenTypes::ClassEnd, None));
+                                self.append_tokens(Token::new(
+                                    TokenTypes::ClassEnd,
+                                    Some("}".to_string()),
+                                ));
                             }
-                            _ => break
+                            _ => break,
                         }
                     }
                 }
@@ -126,53 +147,80 @@ impl  TokenList {
                     }
                 }
 
-
                 CharType::NewLine => {
                     chars.next();
-                    self.append_tokens(Token::new(TokenTypes::NewLine,None));
+                    self.append_tokens(Token::new(TokenTypes::NewLine, Some("\n".to_string())));
                 }
                 CharType::Symbol => {
                     buffer.clear();
-                    while let Some(&c) = chars.peek(){
-                        if CharType::classify_char(c) != CharType::Symbol{break;}
+                    while let Some(&c) = chars.peek() {
+                        if CharType::classify_char(c) != CharType::Symbol {
+                            break;
+                        }
                         match c {
                             '!' => {
                                 chars.next();
-                                self.append_tokens(Token::new(TokenTypes::Image, None));
+                                self.append_tokens(Token::new(
+                                    TokenTypes::Image,
+                                    Some("!".to_string()),
+                                ));
                             }
 
-                            '*'=>{
+                            '*' => {
                                 chars.next();
-                                self.append_tokens(Token::new(TokenTypes::Emphasis, None));
+                                self.append_tokens(Token::new(
+                                    TokenTypes::Emphasis,
+                                    Some("*".to_string()),
+                                ));
                             }
-                            '`'=> {
+                            '`' => {
                                 chars.next();
-                                self.append_tokens(Token::new(TokenTypes::Inline, None));
+                                self.append_tokens(Token::new(
+                                    TokenTypes::BackTick,
+                                    Some("`".to_string()),
+                                ));
                             }
-                            '-'=>{
+                            '-' => {
                                 chars.next();
-                                self.append_tokens(Token::new(TokenTypes::Minus, None));
+                                self.append_tokens(Token::new(
+                                    TokenTypes::Dash,
+                                    Some("-".to_string()),
+                                ));
                             }
-                            '_'=>{
+                            '_' => {
                                 chars.next();
-                                self.append_tokens(Token::new(TokenTypes::UnderScore, None));
+                                self.append_tokens(Token::new(
+                                    TokenTypes::UnderScore,
+                                    Some("_".to_string()),
+                                ));
                             }
-                            _=> {
+                            ':' => {
+                                chars.next();
+                                self.append_tokens(Token::new(
+                                    TokenTypes::Colon,
+                                    Some(":".to_string()),
+                                ));
+                            }
+                            '@' => {
+                                chars.next();
+                                self.append_tokens(Token::new(
+                                    TokenTypes::At,
+                                    Some("@".to_string()),
+                                ));
+                            }
+                            _ => {
                                 chars.next();
                                 buffer.push(c);
                                 let value = std::mem::take(&mut buffer);
                                 self.append_tokens(Token::new(TokenTypes::Text, Some(value)));
                                 break;
                             }
-
-
                         }
-
                     }
                 }
-                CharType::Escape =>{
+                CharType::Escape => {
                     chars.next();
-                    if let Some(ch) = chars.next(){
+                    if let Some(ch) = chars.next() {
                         buffer.push(ch);
                         let value = std::mem::take(&mut buffer);
                         self.append_tokens(Token::new(TokenTypes::Escape, Some(value)));
