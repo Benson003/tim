@@ -181,7 +181,7 @@ Example:
 3. Third
 ```
 
-Nested lists are supported according to indentation rules.
+
 
 ---
 
