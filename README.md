@@ -113,7 +113,6 @@ Source (.tim)
  HTML Renderer
 ```
 
-Additional renderers are planned in the future.
 
 ---
 
@@ -133,7 +132,6 @@ Planned:
 
 - Language specification
 - Better diagnostics
-- Additional renderers
 - Extended attribute syntax
 - Components
 
