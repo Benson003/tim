@@ -14,9 +14,6 @@ impl TokenList {
     fn append_tokens(&mut self, token: Token) {
         self.tokens.push(token);
     }
-    pub fn print_tokens(&self) {
-        println!("Tokens: {:?}", self.tokens);
-    }
     pub fn tokenize(&mut self, source: &str) {
         let mut buffer = String::new();
         let mut chars = source.chars().peekable();

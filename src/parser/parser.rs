@@ -33,7 +33,6 @@ enum Frame {
         children: Vec<ListItem>,
     },
     ListItem {
-        attrs: Attributes,
         children: Vec<Inline>,
     },
     Note {
@@ -49,15 +48,15 @@ enum Frame {
         url: String,
         children: Vec<Inline>,
         attrs: Attributes,
-        state: LinkState,
+        //state: LinkState,
     },
 }
 
-#[derive(Clone)]
-enum LinkState {
-    ReadingUrl,
-    ParsingChildren,
-}
+//#[derive(Clone)]
+//enum LinkState {
+//    ReadingUrl,
+ //   ParsingChildren,
+//}
 
 #[derive(Clone)]
 pub struct Parser {
@@ -560,17 +559,15 @@ impl Parser {
         }
 
         // 4. Push the list item frame and parse contents
-        let attrs = self.take_pending_attrs();
         self.push(Frame::ListItem {
-            attrs,
             children: Vec::new(),
         });
 
         self.parse_inline();
 
         // 5. Pop and append directly to the parent context
-        if let Some(Frame::ListItem { attrs, children }) = self.pop() {
-            let list_item = ListItem { attrs, children };
+        if let Some(Frame::ListItem { children }) = self.pop() {
+            let list_item = ListItem { children };
 
             match self.current_mut() {
                 Some(Frame::OrderedList {
@@ -892,7 +889,7 @@ impl Parser {
             url: String::new(),
             children: Vec::new(),
             attrs,
-            state: LinkState::ParsingChildren,
+            //state: LinkState::ParsingChildren,
         });
         self.parse_inline();
         if !matches!(

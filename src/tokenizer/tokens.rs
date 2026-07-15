@@ -11,9 +11,7 @@ impl Token {
         }
     }
 
-    pub fn print(&self) {
-        print!("<Token type={:?} value={:?}> ", self.token_type, self.value)
-    }
+    
 }
 
 #[derive(Debug, PartialEq)]

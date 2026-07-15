@@ -5,7 +5,6 @@ pub struct Attributes {
 }
 #[derive(Debug, Default, Clone)]
 pub(crate) struct ListItem {
-    pub(crate) attrs: Attributes,
     pub(crate) children: Vec<Inline>,
 }
 
