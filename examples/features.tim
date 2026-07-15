@@ -1,0 +1,53 @@
+# Language Features
+
+## Headers
+
+# Level One
+
+## Level Two
+
+### Level Three
+
+## Paragraphs
+
+Paragraphs are separated by blank lines.
+
+This is another paragraph.
+
+## Lists
+
+- Apples
+- Oranges
+- Bananas
+
+1. First
+2. Second
+3. Third
+
+## Inline Code
+
+Use `cargo build` to compile.
+
+## Code Blocks
+
+``rust
+fn greet() {
+    println!("Hello!");
+}
+``
+
+## Links
+
+[GitHub](https://github.com/Benson003/tim)
+
+## Images
+
+![Logo](logo.png)
+
+## Notes
+
+::note
+
+This note demonstrates container blocks.
+
+::

@@ -1,0 +1,32 @@
+{post}
+# Building T.I.M
+
+Writing a parser turned out to be easier than designing a language.
+
+Every syntax decision affects the lexer, the parser, the AST, and eventually the renderer.
+
+## Why another markup language?
+
+Because sometimes experimentation is the best way to learn.
+
+::note
+
+The goal is not to replace Markdown.
+
+The goal is to build a language with explicit rules and deterministic parsing.
+
+::
+
+## Current Features
+
+- Headers
+- Paragraphs
+- Lists
+- Note blocks
+- IDs
+- Classes
+- Links
+- Images
+- Code blocks
+
+Thanks for reading.

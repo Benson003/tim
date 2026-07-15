@@ -1,0 +1,14 @@
+# Attributes
+
+{hero}
+# Hero Section
+
+This header has an ID.
+
+{_, card, rounded, shadow}
+
+This paragraph has no ID but several classes.
+
+{content, prose}
+
+This paragraph has both an ID and a class.
