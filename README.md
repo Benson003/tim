@@ -6,7 +6,49 @@ T.I.M is a Markdown-inspired markup language designed around deterministic parsi
 
 Unlike traditional Markdown implementations, T.I.M defines a concrete grammar that produces a predictable Abstract Syntax Tree (AST), making it suitable for compilers, static site generators, documentation systems, and other tooling.
 
+
+## Getting Started
+
+### Prerequisites
+
+- Rust (latest stable)
+- Cargo
+
+### Build
+
+```bash
+cargo build
+```
+
+### Run
+
+```bash
+cargo run -- <input.tim>
+```
+
+Or, if compiling in release mode:
+
+```bash
+cargo build --release
+./target/release/tim <input.tim>
+```
+
+The generated executable can be found in:
+
+```
+target/debug/
+```
+
+or
+
+```
+target/release/
+```
+
+depending on the build profile.
+
 ---
+
 
 ## Why T.I.M?
 
