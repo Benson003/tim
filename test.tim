@@ -1,0 +1,141 @@
+{readme}
+# T.I.M
+
+A Markdown-inspired markup language built around deterministic parsing and explicit document structure.
+
+---
+
+## Why?
+
+Markdown is excellent for writing, but modern documents often need more structure than traditional Markdown can express without embedded HTML.
+
+T.I.M extends the familiar syntax with first-class document structures while keeping the source clean and readable.
+
+::note
+
+The goal of T.I.M is not to replace Markdown.
+
+Instead, it provides a well-defined grammar for authors and compiler developers who want predictable parsing and structured document trees.
+
+::
+
+---
+
+## Features
+
+{feature-list}
+
+- Headers
+- Paragraphs
+- Horizontal rules
+- Ordered lists
+- Unordered lists
+- Nested lists
+- Code blocks
+- Inline code
+- Links
+- Images
+- IDs
+- Classes
+- Note blocks
+
+---
+
+## Attributes
+
+Attributes are declared on the line immediately before the block they apply to.
+
+{hero, centered, dark}
+### Styled Header
+
+This header has the ID `hero` and the classes `centered` and `dark`.
+
+{_, warning, rounded}
+This paragraph has no ID, but it has two classes.
+
+---
+
+## Lists
+
+### Unordered
+
+- First item
+- Second item
+- Third item
+    - Nested item
+    - Another nested item
+
+### Ordered
+
+1. Install T.I.M
+2. Write a document
+3. Parse the document
+4. Render the output
+
+---
+
+## Notes
+
+::note
+
+This is a note block.
+
+It can contain multiple paragraphs.
+
+- Lists
+- Headers
+- Other block elements
+
+### Inside the note
+
+Everything inside belongs to the note until the closing delimiter.
+
+::
+
+---
+
+## Code
+
+Inline code looks like `cargo run`.
+
+Code blocks support language identifiers.
+
+``rust
+fn main() {
+    println!("Hello from T.I.M!");
+}
+``
+
+``text
+This is plain text.
+
+Nothing inside here should be parsed as markup.
+
+- Not a list
+# Not a heading
+``
+
+---
+
+## Links
+
+Visit the project homepage.
+
+[GitHub](https://github.com/example/tim)
+
+---
+
+## Images
+
+![Project Logo](logo.png)
+
+---
+
+## Final Thoughts
+
+T.I.M is designed with two goals:
+
+1. Keep authoring simple.
+2. Keep parsing deterministic.
+
+This document intentionally exercises most of the language and serves as both an example and a parser stress test.
