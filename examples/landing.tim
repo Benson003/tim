@@ -1,0 +1,22 @@
+{landing}
+# T.I.M
+
+A deterministic markup language.
+
+{_, hero, centered}
+
+Write naturally.
+
+Compile confidently.
+
+::note
+
+Everything you are reading was written in T.I.M.
+
+::
+
+## Start
+
+- Clone the repository.
+- Build with Cargo.
+- Write your first document.
