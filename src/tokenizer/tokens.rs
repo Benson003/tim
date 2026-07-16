@@ -46,7 +46,6 @@ impl CharType {
 
 #[derive(Debug, Clone)]
 pub enum TokenTypes {
-    Error,
     NewLine,
     WhiteSpace,
     Escape,
