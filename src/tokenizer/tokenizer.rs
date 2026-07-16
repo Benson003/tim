@@ -1,6 +1,9 @@
 use core::{iter::Iterator, option::Option::Some};
 
-use crate::tokenizer::tokens::{CharType, Token, TokenTypes};
+use crate::{
+    source_map::{source_map::SourceMap, span::Span},
+    tokenizer::tokens::{CharType, Token, TokenTypes},
+};
 
 #[derive(Debug)]
 pub struct TokenList {
@@ -14,18 +17,26 @@ impl TokenList {
     fn append_tokens(&mut self, token: Token) {
         self.tokens.push(token);
     }
-    pub fn tokenize(&mut self, source: &str) {
+    pub fn tokenize(&mut self, source_map: &SourceMap) {
         let mut buffer = String::new();
-        let mut chars = source.chars().peekable();
-        while let Some(&ch) = chars.peek() {
+
+        let source = source_map.source();
+        let mut chars = source.char_indices().peekable();
+        while let Some(&(start, ch)) = chars.peek() {
             match CharType::classify_char(ch) {
                 CharType::WhiteSpace => {
                     chars.next();
-                    self.append_tokens(Token::new(TokenTypes::WhiteSpace, Some(" ".to_string())));
+                    let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                    let span = Span::new(start, end);
+                    self.append_tokens(Token::new(
+                        TokenTypes::WhiteSpace,
+                        Some(" ".to_string()),
+                        span,
+                    ));
                 }
                 CharType::Letter => {
                     buffer.clear();
-                    while let Some(&c) = chars.peek() {
+                    while let Some(&(_, c)) = chars.peek() {
                         match CharType::classify_char(c) {
                             CharType::Letter => {
                                 buffer.push(c);
@@ -35,76 +46,107 @@ impl TokenList {
                         }
                     }
                     let value = std::mem::take(&mut buffer);
-                    self.append_tokens(Token::new(TokenTypes::Text, Some(value)));
+                    let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                    let span = Span::new(start, end);
+                    self.append_tokens(Token::new(TokenTypes::Text, Some(value), span));
                 }
                 CharType::Special => {
                     buffer.clear();
-                    while let Some(&c) = chars.peek() {
+                    while let Some(&(_, c)) = chars.peek() {
                         if CharType::classify_char(c) != CharType::Special {
                             break;
                         }
                         match c {
                             '#' => {
                                 chars.next();
+                                let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                                let span = Span::new(start, end);
                                 self.append_tokens(Token::new(
                                     TokenTypes::Header,
                                     Some("#".to_string()),
+                                    span,
                                 ));
                             }
                             '[' => {
                                 chars.next();
+                                let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                                let span = Span::new(start, end);
+
                                 self.append_tokens(Token::new(
                                     TokenTypes::AnchorValueStart,
                                     Some("[".to_string()),
+                                    span,
                                 ));
                             }
                             ']' => {
                                 chars.next();
+                                let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                                let span = Span::new(start, end);
+
                                 self.append_tokens(Token::new(
                                     TokenTypes::AnchorValueEnd,
                                     Some("]".to_string()),
+                                    span,
                                 ));
                             }
                             '(' => {
                                 chars.next();
+                                let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                                let span = Span::new(start, end);
                                 self.append_tokens(Token::new(
                                     TokenTypes::AnchorURLStart,
                                     Some("(".to_string()),
+                                    span,
                                 ));
                             }
                             ')' => {
                                 chars.next();
+                                let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                                let span = Span::new(start, end);
                                 self.append_tokens(Token::new(
                                     TokenTypes::AnchorURLEnd,
                                     Some(")".to_string()),
+                                    span,
                                 ));
                             }
                             '<' => {
                                 chars.next();
+                                let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                                let span = Span::new(start, end);
                                 self.append_tokens(Token::new(
                                     TokenTypes::UniqueIDBegin,
                                     Some("<".to_string()),
+                                    span,
                                 ));
                             }
                             '>' => {
                                 chars.next();
+                                let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                                let span = Span::new(start, end);
                                 self.append_tokens(Token::new(
                                     TokenTypes::UniqueIDEnd,
                                     Some(">".to_string()),
+                                    span,
                                 ));
                             }
                             '{' => {
                                 chars.next();
+                                let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                                let span = Span::new(start, end);
                                 self.append_tokens(Token::new(
                                     TokenTypes::ClassBegin,
                                     Some("{".to_string()),
+                                    span,
                                 ));
                             }
                             '}' => {
                                 chars.next();
+                                let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                                let span = Span::new(start, end);
                                 self.append_tokens(Token::new(
                                     TokenTypes::ClassEnd,
                                     Some("}".to_string()),
+                                    span,
                                 ));
                             }
                             _ => break,
@@ -116,7 +158,7 @@ impl TokenList {
                     let mut is_ordered_list = false;
                     let mut num_str = String::new();
 
-                    while let Some(&c) = chars.peek() {
+                    while let Some(&(_, c)) = chars.peek() {
                         match c {
                             '0'..='9' => {
                                 num_str.push(c);
@@ -125,7 +167,9 @@ impl TokenList {
                             '.' => {
                                 let mut check_iter = chars.clone();
                                 check_iter.next(); // '.'
-                                if check_iter.next() == Some(' ') && !num_str.is_empty() {
+                                if check_iter.next().map(|(_, c)| c) == Some(' ')
+                                    && !num_str.is_empty()
+                                {
                                     // Confirm ordered list
                                     is_ordered_list = true;
                                     chars.next(); // consume '.'
@@ -137,79 +181,117 @@ impl TokenList {
                         }
                     }
 
+                    let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                    let span = Span::new(start, end);
                     if is_ordered_list {
-                        self.append_tokens(Token::new(TokenTypes::OrderedList, Some(num_str)));
+                        self.append_tokens(Token::new(
+                            TokenTypes::OrderedList,
+                            Some(num_str),
+                            span,
+                        ));
                     } else {
-                        self.append_tokens(Token::new(TokenTypes::Text, Some(num_str)));
+                        self.append_tokens(Token::new(TokenTypes::Text, Some(num_str), span));
                     }
                 }
 
                 CharType::NewLine => {
                     chars.next();
-                    self.append_tokens(Token::new(TokenTypes::NewLine, Some("\n".to_string())));
+
+                    let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                    let span = Span::new(start, end);
+                    self.append_tokens(Token::new(
+                        TokenTypes::NewLine,
+                        Some("\n".to_string()),
+                        span,
+                    ));
                 }
                 CharType::Symbol => {
                     buffer.clear();
-                    while let Some(&c) = chars.peek() {
+                    while let Some(&(_, c)) = chars.peek() {
                         if CharType::classify_char(c) != CharType::Symbol {
                             break;
                         }
                         match c {
                             '!' => {
                                 chars.next();
+                                let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                                let span = Span::new(start, end);
+
                                 self.append_tokens(Token::new(
                                     TokenTypes::Image,
                                     Some("!".to_string()),
+                                    span,
                                 ));
                             }
 
                             '*' => {
                                 chars.next();
+                                let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                                let span = Span::new(start, end);
+
                                 self.append_tokens(Token::new(
                                     TokenTypes::Emphasis,
                                     Some("*".to_string()),
+                                    span,
                                 ));
                             }
                             '`' => {
                                 chars.next();
+                                let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                                let span = Span::new(start, end);
                                 self.append_tokens(Token::new(
                                     TokenTypes::BackTick,
                                     Some("`".to_string()),
+                                    span,
                                 ));
                             }
                             '-' => {
                                 chars.next();
+                                let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                                let span = Span::new(start, end);
                                 self.append_tokens(Token::new(
                                     TokenTypes::Dash,
                                     Some("-".to_string()),
+                                    span,
                                 ));
                             }
                             '_' => {
                                 chars.next();
+                                let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                                let span = Span::new(start, end);
                                 self.append_tokens(Token::new(
                                     TokenTypes::UnderScore,
                                     Some("_".to_string()),
+                                    span,
                                 ));
                             }
                             ':' => {
                                 chars.next();
+                                let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                                let span = Span::new(start, end);
                                 self.append_tokens(Token::new(
                                     TokenTypes::Colon,
                                     Some(":".to_string()),
+                                    span,
                                 ));
                             }
                             '@' => {
                                 chars.next();
+                                let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                                let span = Span::new(start, end);
                                 self.append_tokens(Token::new(
                                     TokenTypes::At,
                                     Some("@".to_string()),
+                                    span,
                                 ));
                             }
                             _ => {
                                 chars.next();
                                 buffer.push(c);
                                 let value = std::mem::take(&mut buffer);
-                                self.append_tokens(Token::new(TokenTypes::Text, Some(value)));
+                                let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                                let span = Span::new(start, end);
+                                self.append_tokens(Token::new(TokenTypes::Text, Some(value), span));
                                 break;
                             }
                         }
@@ -217,10 +299,12 @@ impl TokenList {
                 }
                 CharType::Escape => {
                     chars.next();
-                    if let Some(ch) = chars.next() {
+                    if let Some((_, ch)) = chars.next() {
                         buffer.push(ch);
                         let value = std::mem::take(&mut buffer);
-                        self.append_tokens(Token::new(TokenTypes::Escape, Some(value)));
+                        let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                        let span = Span::new(start, end);
+                        self.append_tokens(Token::new(TokenTypes::Escape, Some(value), span));
                     }
                 }
                 CharType::Unknown => {
@@ -228,7 +312,9 @@ impl TokenList {
                     chars.next();
                     buffer.push(ch);
                     let value = std::mem::take(&mut buffer);
-                    self.append_tokens(Token::new(TokenTypes::Error, Some(value)));
+                    let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                    let span = Span::new(start, end);
+                    self.append_tokens(Token::new(TokenTypes::Error, Some(value), span));
                 }
             }
         }
