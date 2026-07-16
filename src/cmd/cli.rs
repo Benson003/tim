@@ -1,16 +1,12 @@
 use std::{env, process};
 
-pub const MAJOR: u8 = 0;
-pub const MINOR: u8 = 0;
-pub const PATCH: u8 = 1;
-
 pub struct CliConfig {
     pub input_file: String,
     pub output_file: Option<String>,
     pub wrap_tag: Option<String>,
     pub dry_run: bool,
 }
-
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 impl CliConfig {
     pub fn parse() -> Self {
         let args: Vec<String> = env::args().collect();
@@ -22,7 +18,7 @@ impl CliConfig {
         }
 
         if args.contains(&"--version".to_string()) {
-            println!("tim compiler v{}.{}.{}", MAJOR, MINOR, PATCH);
+            println!("tim compiler v{}", VERSION);
             process::exit(0);
         }
 
