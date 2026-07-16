@@ -1,6 +1,7 @@
 use core::{iter::Iterator, option::Option::Some};
 
 use crate::{
+    diagnostics::diagnostics::{Diagnostic, Severity},
     source_map::{source_map::SourceMap, span::Span},
     tokenizer::tokens::{CharType, Token, TokenTypes},
 };
@@ -8,19 +9,40 @@ use crate::{
 #[derive(Debug)]
 pub struct TokenList {
     pub tokens: Vec<Token>,
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 impl TokenList {
     pub fn new() -> TokenList {
-        TokenList { tokens: Vec::new() }
+        TokenList {
+            tokens: Vec::new(),
+            diagnostics: Vec::new(),
+        }
     }
     fn append_tokens(&mut self, token: Token) {
         self.tokens.push(token);
     }
+    fn push_warning(&mut self, message: &str, span: Span, label: Option<&str>) {
+        self.diagnostics.push(Diagnostic {
+            severity: Severity::Warning,
+            message: message.to_string(),
+            span,
+            label: label.map(|s| s.to_string()),
+        });
+    }
+
+    fn push_error(&mut self, message: &str, span: Span, label: Option<&str>) {
+        self.diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            message: message.to_string(),
+            span,
+            label: label.map(|s| s.to_string()),
+        });
+    }
     pub fn tokenize(&mut self, source_map: &SourceMap) {
         let mut buffer = String::new();
 
-        let source = source_map.source();
+        let source = &source_map.source;
         let mut chars = source.char_indices().peekable();
         while let Some(&(start, ch)) = chars.peek() {
             match CharType::classify_char(ch) {
@@ -149,7 +171,13 @@ impl TokenList {
                                     span,
                                 ));
                             }
-                            _ => break,
+                            _ => {
+                                chars.next();
+                                let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
+                                let span = Span::new(start, end);
+                                let value = source[start..end].to_string();
+                                self.append_tokens(Token::new(TokenTypes::Text, Some(value), span));
+                            }
                         }
                     }
                 }
@@ -305,6 +333,14 @@ impl TokenList {
                         let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
                         let span = Span::new(start, end);
                         self.append_tokens(Token::new(TokenTypes::Escape, Some(value), span));
+                    } else {
+                        let span = Span::new(start, source.len());
+
+                        self.push_error(
+                            "unclosed escape sequence",
+                            span,
+                            Some("expected a character after backslash"),
+                        );
                     }
                 }
                 CharType::Unknown => {
@@ -314,7 +350,12 @@ impl TokenList {
                     let value = std::mem::take(&mut buffer);
                     let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
                     let span = Span::new(start, end);
-                    self.append_tokens(Token::new(TokenTypes::Error, Some(value), span));
+                    self.push_warning(
+                        "Unexpected charater encoutered",
+                        span,
+                        Some(format!("Character:{}", ch).as_str()),
+                    );
+                    self.append_tokens(Token::new(TokenTypes::Text, Some(value), span));
                 }
             }
         }

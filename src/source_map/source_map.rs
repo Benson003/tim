@@ -1,8 +1,9 @@
 use crate::source_map::span::Span;
 
+#[derive(Clone)]
 pub struct SourceMap {
-    newlines: Vec<usize>,
-    source: String,
+    pub newlines: Vec<usize>,
+    pub source: String,
 }
 
 impl SourceMap {
@@ -15,13 +16,7 @@ impl SourceMap {
             }
         }
 
-        Self {
-            newlines: Vec::new(),
-            source,
-        }
-    }
-    pub fn source(&self) -> String {
-        self.source.clone()
+        Self { newlines, source }
     }
 
     pub fn lookup_char_postion(&self, pos: usize) -> (usize, usize) {

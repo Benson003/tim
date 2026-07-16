@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
+    diagnostics::diagnostics::Diagnostic,
     parser::ast::{Attributes, Block, Document, Inline, ListItem},
-    source_map::span::Span,
+    source_map::span::{HasSpan, Span},
     tokenizer::tokens::{Token, TokenTypes},
 };
 
@@ -54,9 +55,9 @@ enum Frame {
 }
 
 #[derive(Debug, Clone)]
-pub struct StackFrame {
-    pub(crate) frame: Frame,
-    pub(crate) start_span: Span,
+struct StackFrame {
+    frame: Frame,
+    start_span: Span,
 }
 //#[derive(Clone)]
 //enum LinkState {
@@ -71,6 +72,7 @@ pub struct Parser {
     stack: Vec<StackFrame>,
     pending_attrs: Attributes,
     global_ids: HashSet<String>,
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 impl Frame {
@@ -100,7 +102,7 @@ impl Frame {
         }
     }
 
-    pub(crate) fn add_inline(&mut self, inline: Inline) {
+    pub(crate) fn add_inline(&mut self, inline: &Inline) -> bool {
         match self {
             Frame::Paragraph { children, .. }
             | Frame::Header { children, .. }
@@ -118,19 +120,18 @@ impl Frame {
                     }) = children.last_mut()
                     {
                         existing_text.push_str(new_text);
-                        return;
+                        return true;
                     }
                 }
-                children.push(inline)
+                children.push(inline.clone());
+                true
             }
 
             Frame::Document { .. }
             | Frame::OrderedList { .. }
             | Frame::UnorderedList { .. }
             | Frame::CodeBlock { .. }
-            | Frame::Note { .. } => {
-                panic!("failed to handle invalid placment of inline")
-            }
+            | Frame::Note { .. } => false,
         }
     }
 
@@ -194,7 +195,25 @@ impl Parser {
             stack: Vec::new(),
             pending_attrs: Attributes::default(),
             global_ids: HashSet::new(),
+            diagnostics: Vec::new(),
         }
+    }
+
+    fn emit_error_with_label(
+        &mut self,
+        message: impl Into<String>,
+        span: Span,
+        label: impl Into<String>,
+    ) {
+        self.diagnostics
+            .push(Diagnostic::error(message, span).with_label(label));
+    }
+
+    fn emit_warning(&mut self, message: impl Into<String>, span: Span) {
+        self.diagnostics.push(Diagnostic::warning(message, span));
+    }
+    fn emit_error(&mut self, message: impl Into<String>, span: Span) {
+        self.diagnostics.push(Diagnostic::error(message, span));
     }
 
     fn take_pending_attrs(&mut self) -> Attributes {
@@ -248,7 +267,17 @@ impl Parser {
 
     fn add_inline_to_current_frame(&mut self, inline: Inline) {
         if let Some(frame) = self.current_mut() {
-            frame.add_inline(inline);
+            if !frame.add_inline(&inline) {
+                self.emit_error(
+                    "Invalid placement of inline content in block level container",
+                    inline.span(),
+                );
+            }
+        } else {
+            self.emit_error(
+                "Attempted to add inline content outside of any container",
+                inline.span(),
+            );
         }
     }
     fn is_note_end(&self) -> bool {
@@ -304,9 +333,19 @@ impl Parser {
             self.parse_block();
         }
 
-        let doc_stack_frame = self
-            .pop_frame()
-            .expect("Critical Error: Document frame was popped prematurely!");
+        let doc_stack_frame = self.pop_frame();
+        if doc_stack_frame.is_none() {
+            self.emit_error(
+                "Critical Error: Document frame was popped prematurely!",
+                start_span,
+            );
+            return Document {
+                children: Vec::new(),
+                span: start_span,
+            };
+        }
+
+        let doc_stack_frame = doc_stack_frame.unwrap();
 
         let total_span = doc_stack_frame.start_span.to(self.last_span());
         match doc_stack_frame.frame {
@@ -314,7 +353,13 @@ impl Parser {
                 children,
                 span: total_span,
             },
-            _ => unreachable!("The root frame must always be a Document"),
+            _ => {
+                self.emit_error("Internal error:Root frame was not a Document", start_span);
+                Document {
+                    children: Vec::new(),
+                    span: total_span,
+                }
+            }
         }
     }
 
@@ -365,7 +410,12 @@ impl Parser {
         }
 
         if !closed {
-            panic!("Syntax Error: Unterminated attribute block. expected a closing '}}'");
+            self.emit_error_with_label(
+                "Unterminated attribute block",
+                start_span,
+                "expected closing '}' here",
+            );
+            return;
         }
 
         let end_span = self.last_span();
@@ -381,9 +431,13 @@ impl Parser {
                     break;
                 }
                 _ => {
-                    panic!(
-                        "Syntax Error: Attributes must sit on thier own line directly above the block"
-                    )
+                    self.emit_error_with_label(
+                        "Attributes must sit on their own line directly above the block",
+                        token.span,
+                        "attributes should be on their own line",
+                    );
+
+                    break;
                 }
             }
         }
@@ -396,10 +450,20 @@ impl Parser {
             Some(actual_id) => {
                 let id_str = actual_id.to_string();
                 if !self.global_ids.insert(id_str.clone()) {
-                    panic!(
-                        "Syntax Error: Duplicate ID '{}' found.IDs must be unique accros the document",
-                        id_str
-                    )
+                    let id_start = raw_content.find(actual_id).unwrap_or(0);
+                    let id_end = id_start + actual_id.len();
+                    let id_span = Span {
+                        lo: start_span.lo + id_start,
+                        hi: start_span.lo + id_end,
+                    };
+                    self.emit_error_with_label(
+                        format!(
+                            "Duplicate ID '{}' found. IDs must be unique across the document",
+                            id_str
+                        ),
+                        id_span,
+                        "duplicate ID here",
+                    );
                 }
                 Some(id_str)
             }
@@ -416,18 +480,46 @@ impl Parser {
                         let key = item[..colon_pos].trim().to_string();
 
                         if key.is_empty() {
-                            panic!("Syntax Error: empty key")
+                            let colon_span = Span {
+                                lo: start_span.lo + item.find(':').unwrap(),
+                                hi: start_span.lo + item.find(':').unwrap() + 1,
+                            };
+                            self.emit_error_with_label(
+                                "Empty key in attribute",
+                                colon_span,
+                                "key is empty here",
+                            );
+                            continue;
                         }
 
                         let value_part = item[colon_pos + 1..].trim();
 
                         let value = if value_part.starts_with('"') {
                             if !value_part.ends_with('"') {
-                                panic!("Syntax Error: unclosed quote in value")
+                                let quote_span = Span {
+                                    lo: start_span.lo + colon_pos + 1,
+                                    hi: start_span.lo + colon_pos + 1 + value_part.len(),
+                                };
+                                self.emit_error_with_label(
+                                    "Unclosed quote in attribute value",
+                                    quote_span,
+                                    "missing closing quote",
+                                );
+                                continue;
                             }
                             value_part[1..value_part.len() - 1].to_string()
                         } else if value_part.contains('"') {
-                            panic!("Syntax Error: invalid quote placment")
+                            let quote_pos = colon_pos + 1 + value_part.find('"').unwrap();
+                            let quote_span = Span {
+                                lo: start_span.lo + quote_pos,
+                                hi: start_span.lo + quote_pos + 1,
+                            };
+                            self.emit_error_with_label(
+                                "Invalid quote placement in attribute value",
+                                quote_span,
+                                "unexpected quote here",
+                            );
+                            continue;
                         } else {
                             value_part.to_string()
                         };
@@ -503,7 +595,11 @@ impl Parser {
         }
 
         if !closed {
-            panic!("Syntax Error: Unterminated note block. Expected closing '::'");
+            self.emit_error_with_label(
+                "Unterminated note block",
+                start_span,
+                "note started here, expected closing '::'",
+            );
         }
 
         let end_span = self.last_span();
@@ -532,7 +628,12 @@ impl Parser {
             return;
         }
 
-        let token = self.peek().expect("Expected a token");
+        let token = self.peek();
+
+        if token.is_none() {
+            return;
+        }
+        let token = token.unwrap();
 
         match token.token_type {
             TokenTypes::ClassBegin => {
@@ -566,7 +667,9 @@ impl Parser {
                 if self.is_note_start() {
                     self.parse_note();
                 } else if self.is_note_end() {
-                    panic!("Syntax Error: Found closing '::' without an open note block.");
+                    self.emit_error("Found closing '::' without an open note block.", token.span);
+                    self.advance();
+                    self.advance();
                 } else {
                     // It's just a regular paragraph starting with a colon
                     self.parse_paragraph();
@@ -708,7 +811,9 @@ impl Parser {
                     }) => {
                         list_children.push(list_item);
                     }
-                    _ => panic!("Syntax Error: ListItem parsed outside of a list frame!"),
+                    _ => {
+                        self.emit_error("ListItem parsed outside of a list frame!", list_item.span)
+                    }
                 }
             }
         }
@@ -919,8 +1024,10 @@ impl Parser {
 
         if !closed {
             // Your custom compiler error handling!
-            panic!(
-                "Syntax Error: Unterminated inline code segment. Expected a closing backtick '`'."
+            self.emit_error_with_label(
+                "Unterminated inline code segment.",
+                self.current_span(),
+                "Expected a closing backtick '`'.",
             );
         }
         let end_span = self.last_span();
@@ -984,7 +1091,7 @@ impl Parser {
             self.peek().map(|t| &t.token_type),
             Some(TokenTypes::AnchorValueStart)
         ) {
-            panic!("Syntax Error: Expected '[' after '!' to begin an image.");
+            self.emit_error("Expected '[' after '!' to begin an image.", start_span);
         }
         self.advance();
 
@@ -992,21 +1099,42 @@ impl Parser {
         let mut closed_braket = false;
 
         while !self.is_eof() {
-            let token = self.peek().expect("Expected token in image alt");
-            if matches!(token.token_type, TokenTypes::AnchorValueStart) {
-                panic!("Syntax Error: Nested brackets are not allowed inside image alt text!");
-            }
-            if matches!(token.token_type, TokenTypes::Image) {
-                if let Some(next_tok) = self.tokens.get(self.cursor + 1) {
-                    if matches!(next_tok.token_type, TokenTypes::AnchorValueStart) {
-                        panic!(
-                            "Syntax Error: Cannot embed an image inside another image's alt text!"
-                        );
-                    }
-                }
+            // Take the token and clone what we need before any mutable borrow
+            let token_span = self.peek().map(|t| t.span).unwrap_or_default();
+            let token_type = self.peek().map(|t| t.token_type.clone());
+            let is_anchor_value_start = matches!(token_type, Some(TokenTypes::AnchorValueStart));
+            let is_image = matches!(token_type, Some(TokenTypes::Image));
+            let is_anchor_value_end = matches!(token_type, Some(TokenTypes::AnchorValueEnd));
+
+            // Check for next token without holding a borrow
+            let has_next_anchor = if is_image {
+                self.tokens
+                    .get(self.cursor + 1)
+                    .map(|t| matches!(t.token_type, TokenTypes::AnchorValueStart))
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+
+            if is_anchor_value_start {
+                self.emit_error(
+                    "Nested brackets are not allowed inside image alt text!",
+                    token_span,
+                );
+                self.advance();
+                continue;
             }
 
-            if matches!(token.token_type, TokenTypes::AnchorValueEnd) {
+            if is_image && has_next_anchor {
+                self.emit_error(
+                    "Cannot embed an image inside another image's alt text!",
+                    token_span,
+                );
+                self.advance();
+                continue;
+            }
+
+            if is_anchor_value_end {
                 self.advance();
                 closed_braket = true;
                 break;
@@ -1016,7 +1144,6 @@ impl Parser {
                 }
             }
         }
-
         if !closed_braket {
             panic!("Syntax Error: Unterminated image alt tag. Expected ']'");
         }
@@ -1077,15 +1204,25 @@ impl Parser {
             self.peek().map(|t| &t.token_type),
             Some(TokenTypes::AnchorValueEnd)
         ) {
-            panic!("Syntax Error: Expected ']' to close link text");
+            self.emit_error("Expected ']' to close link text", self.current_span());
+            self.pop_frame();
+            return;
         }
         self.advance();
-        let mut stack_frame = self.pop_frame().expect("Expected Link Frome on stack");
+        let stack_frame = self.pop_frame();
+        if stack_frame.is_none() {
+            self.emit_error("Expected Link Frome on stack", start_span);
+        }
+        let mut stack_frame = stack_frame.unwrap();
         if !matches!(
             self.peek().map(|t| &t.token_type),
             Some(TokenTypes::AnchorURLStart)
         ) {
-            panic!("Syntax Error: Expected '(' contaning link URL after ']'")
+            self.emit_error(
+                "Expected '(' contaning link URL after ']'",
+                self.current_span(),
+            );
+            return;
         }
         self.advance();
         let mut url_str = String::new();
@@ -1104,7 +1241,8 @@ impl Parser {
         }
 
         if !closed_paren {
-            panic!("Syntax Error: Unterminated link URL.Expected ')'");
+            self.emit_error("Unterminated link URL.Expected ')'", self.current_span());
+            return;
         }
 
         let end_span = self.last_span();
@@ -1134,7 +1272,11 @@ impl Parser {
         }
 
         if open_count != 2 {
-            panic!("Syntax Error: Block code must start with exactly two backticks '``'");
+            self.emit_error(
+                "Block code must start with exactly two backticks '``'",
+                start_span,
+            );
+            return;
         }
 
         let mut language = String::new();
@@ -1197,7 +1339,7 @@ impl Parser {
         }
 
         if !closed {
-            panic!("Syntax Error: Unterminated code block. Expected '``'");
+            self.emit_error("Unterminated code block. Expected '``'", start_span);
         }
 
         let end_span = self.last_span();
