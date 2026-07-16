@@ -1,11 +1,13 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
+    diagnostics::diagnostics::Diagnostic,
     parser::ast::{Attributes, Block, Document, Inline, ListItem},
+    source_map::span::{HasSpan, Span},
     tokenizer::tokens::{Token, TokenTypes},
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum Frame {
     Document {
         children: Vec<Block>,
@@ -52,26 +54,39 @@ enum Frame {
     },
 }
 
+#[derive(Debug, Clone)]
+struct StackFrame {
+    frame: Frame,
+    start_span: Span,
+}
 //#[derive(Clone)]
 //enum LinkState {
 //    ReadingUrl,
- //   ParsingChildren,
+//   ParsingChildren,
 //}
 
 #[derive(Clone)]
 pub struct Parser {
     tokens: Vec<Token>,
     cursor: usize,
-    stack: Vec<Frame>,
+    stack: Vec<StackFrame>,
     pending_attrs: Attributes,
     global_ids: HashSet<String>,
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 impl Frame {
-    pub(crate) fn into_inline(self) -> Option<Inline> {
+    pub(crate) fn into_inline(self, start_span: Span, end_span: Span) -> Option<Inline> {
+        let total_span = start_span.to(end_span);
         match self {
-            Frame::Bold { children } => Some(Inline::Bold { children }),
-            Frame::Italic { children } => Some(Inline::Italic { children }),
+            Frame::Bold { children } => Some(Inline::Bold {
+                children,
+                span: total_span,
+            }),
+            Frame::Italic { children } => Some(Inline::Italic {
+                children,
+                span: total_span,
+            }),
             Frame::Link {
                 url,
                 children,
@@ -81,12 +96,13 @@ impl Frame {
                 url,
                 children,
                 attrs,
+                span: total_span,
             }),
             _ => None,
         }
     }
 
-    pub(crate) fn add_inline(&mut self, inline: Inline) {
+    pub(crate) fn add_inline(&mut self, inline: &Inline) -> bool {
         match self {
             Frame::Paragraph { children, .. }
             | Frame::Header { children, .. }
@@ -94,28 +110,39 @@ impl Frame {
             | Frame::Bold { children, .. }
             | Frame::Italic { children, .. }
             | Frame::Link { children, .. } => {
-                if let Inline::Text(new_text) = &inline {
-                    if let Some(Inline::Text(existing_text)) = children.last_mut() {
+                if let Inline::Text {
+                    value: new_text, ..
+                } = &inline
+                {
+                    if let Some(Inline::Text {
+                        value: existing_text,
+                        ..
+                    }) = children.last_mut()
+                    {
                         existing_text.push_str(new_text);
-                        return;
+                        return true;
                     }
                 }
-                children.push(inline)
+                children.push(inline.clone());
+                true
             }
 
             Frame::Document { .. }
             | Frame::OrderedList { .. }
             | Frame::UnorderedList { .. }
             | Frame::CodeBlock { .. }
-            | Frame::Note { .. } => {
-                panic!("failed to handle invalid placment of inline")
-            }
+            | Frame::Note { .. } => false,
         }
     }
 
-    pub(crate) fn into_block(self) -> Option<Block> {
+    pub(crate) fn into_block(self, start_span: Span, end_span: Span) -> Option<Block> {
+        let total_span = start_span.to(end_span);
         match self {
-            Frame::Paragraph { attrs, children } => Some(Block::Paragraph { attrs, children }),
+            Frame::Paragraph { attrs, children } => Some(Block::Paragraph {
+                attrs,
+                children,
+                span: total_span,
+            }),
             Frame::Header {
                 level,
                 attrs,
@@ -124,8 +151,12 @@ impl Frame {
                 level,
                 children,
                 attrs,
+                span: total_span,
             }),
-            Frame::Note { children } => Some(Block::Note { children }),
+            Frame::Note { children } => Some(Block::Note {
+                children,
+                span: total_span,
+            }),
             Frame::OrderedList {
                 start,
                 children,
@@ -134,13 +165,17 @@ impl Frame {
                 start,
                 children,
                 attrs,
+                span: total_span,
             }),
-            Frame::UnorderedList { attrs, children } => {
-                Some(Block::UnorderedList { children, attrs })
-            }
+            Frame::UnorderedList { attrs, children } => Some(Block::UnorderedList {
+                children,
+                attrs,
+                span: total_span,
+            }),
             Frame::CodeBlock { language, content } => Some(Block::CodeBlock {
                 language,
                 code: content,
+                span: total_span,
             }),
 
             Frame::Document { .. }
@@ -160,7 +195,25 @@ impl Parser {
             stack: Vec::new(),
             pending_attrs: Attributes::default(),
             global_ids: HashSet::new(),
+            diagnostics: Vec::new(),
         }
+    }
+
+    fn emit_error_with_label(
+        &mut self,
+        message: impl Into<String>,
+        span: Span,
+        label: impl Into<String>,
+    ) {
+        self.diagnostics
+            .push(Diagnostic::error(message, span).with_label(label));
+    }
+
+    fn emit_warning(&mut self, message: impl Into<String>, span: Span) {
+        self.diagnostics.push(Diagnostic::warning(message, span));
+    }
+    fn emit_error(&mut self, message: impl Into<String>, span: Span) {
+        self.diagnostics.push(Diagnostic::error(message, span));
     }
 
     fn take_pending_attrs(&mut self) -> Attributes {
@@ -183,19 +236,48 @@ impl Parser {
     fn is_eof(&self) -> bool {
         self.cursor >= self.tokens.len()
     }
-    fn pop(&mut self) -> Option<Frame> {
-        self.stack.pop()
+
+    fn current_span(&self) -> Span {
+        self.peek().map(|t| t.span).unwrap_or_else(|| {
+            self.tokens
+                .last()
+                .map(|t| t.span)
+                .unwrap_or(Span { lo: 0, hi: 0 })
+        })
     }
-    fn push(&mut self, frame: Frame) {
-        self.stack.push(frame);
+
+    fn last_span(&self) -> Span {
+        if self.cursor > 0 {
+            self.tokens[self.cursor - 1].span
+        } else {
+            self.current_span()
+        }
+    }
+
+    fn push_frame(&mut self, frame: Frame, start_span: Span) {
+        self.stack.push(StackFrame { frame, start_span });
+    }
+    fn pop_frame(&mut self) -> Option<StackFrame> {
+        self.stack.pop()
     }
 
     fn current_mut(&mut self) -> Option<&mut Frame> {
-        self.stack.last_mut()
+        self.stack.last_mut().map(|sf| &mut sf.frame)
     }
+
     fn add_inline_to_current_frame(&mut self, inline: Inline) {
-        if let Some(frame) = self.stack.last_mut() {
-            frame.add_inline(inline);
+        if let Some(frame) = self.current_mut() {
+            if !frame.add_inline(&inline) {
+                self.emit_error(
+                    "Invalid placement of inline content in block level container",
+                    inline.span(),
+                );
+            }
+        } else {
+            self.emit_error(
+                "Attempted to add inline content outside of any container",
+                inline.span(),
+            );
         }
     }
     fn is_note_end(&self) -> bool {
@@ -239,25 +321,50 @@ impl Parser {
     }
 
     pub fn parse(&mut self) -> Document {
-        self.push(Frame::Document {
-            children: Vec::new(),
-        });
+        let start_span = self.current_span();
+        self.push_frame(
+            Frame::Document {
+                children: Vec::new(),
+            },
+            start_span,
+        );
 
         while !self.is_eof() {
             self.parse_block();
         }
 
-        let doc_frame = self
-            .pop()
-            .expect("Critical Error: Document frame was popped prematurely!");
+        let doc_stack_frame = self.pop_frame();
+        if doc_stack_frame.is_none() {
+            self.emit_error(
+                "Critical Error: Document frame was popped prematurely!",
+                start_span,
+            );
+            return Document {
+                children: Vec::new(),
+                span: start_span,
+            };
+        }
 
-        match doc_frame {
-            Frame::Document { children } => Document { children },
-            _ => unreachable!("The root frame must always be a Document"),
+        let doc_stack_frame = doc_stack_frame.unwrap();
+
+        let total_span = doc_stack_frame.start_span.to(self.last_span());
+        match doc_stack_frame.frame {
+            Frame::Document { children } => Document {
+                children,
+                span: total_span,
+            },
+            _ => {
+                self.emit_error("Internal error:Root frame was not a Document", start_span);
+                Document {
+                    children: Vec::new(),
+                    span: total_span,
+                }
+            }
         }
     }
 
     fn parse_attributes(&mut self) {
+        let start_span = self.current_span();
         self.advance(); // consume ClassBegin {
         let mut raw_content = String::new();
         let mut closed = false;
@@ -284,6 +391,10 @@ impl Parser {
                     raw_content.push('-');
                     self.advance();
                 }
+                TokenTypes::Colon => {
+                    raw_content.push(':');
+                    self.advance();
+                }
                 TokenTypes::WhiteSpace => {
                     raw_content.push(' ');
                     self.advance();
@@ -299,8 +410,16 @@ impl Parser {
         }
 
         if !closed {
-            panic!("Syntax Error: Unterminated attribute block. expected a closing '}}'");
+            self.emit_error_with_label(
+                "Unterminated attribute block",
+                start_span,
+                "expected closing '}' here",
+            );
+            return;
         }
+
+        let end_span = self.last_span();
+        let total_span = start_span.to(end_span);
 
         while let Some(token) = self.peek() {
             match token.token_type {
@@ -312,9 +431,13 @@ impl Parser {
                     break;
                 }
                 _ => {
-                    panic!(
-                        "Syntax Error: Attributes must sit on thier own line directly above the block"
-                    )
+                    self.emit_error_with_label(
+                        "Attributes must sit on their own line directly above the block",
+                        token.span,
+                        "attributes should be on their own line",
+                    );
+
+                    break;
                 }
             }
         }
@@ -327,26 +450,96 @@ impl Parser {
             Some(actual_id) => {
                 let id_str = actual_id.to_string();
                 if !self.global_ids.insert(id_str.clone()) {
-                    panic!(
-                        "Syntax Error: Duplicate ID '{}' found.IDs must be unique accros the document",
-                        id_str
-                    )
+                    let id_start = raw_content.find(actual_id).unwrap_or(0);
+                    let id_end = id_start + actual_id.len();
+                    let id_span = Span {
+                        lo: start_span.lo + id_start,
+                        hi: start_span.lo + id_end,
+                    };
+                    self.emit_error_with_label(
+                        format!(
+                            "Duplicate ID '{}' found. IDs must be unique across the document",
+                            id_str
+                        ),
+                        id_span,
+                        "duplicate ID here",
+                    );
                 }
                 Some(id_str)
             }
         };
 
         let mut classes = Vec::new();
+        let mut properties = HashMap::new();
         for item in parts {
             let trimmed = item.trim();
+
             if !trimmed.is_empty() {
-                classes.push(trimmed.to_string());
+                if item.contains(':') {
+                    if let Some(colon_pos) = item.find(':') {
+                        let key = item[..colon_pos].trim().to_string();
+
+                        if key.is_empty() {
+                            let colon_span = Span {
+                                lo: start_span.lo + item.find(':').unwrap(),
+                                hi: start_span.lo + item.find(':').unwrap() + 1,
+                            };
+                            self.emit_error_with_label(
+                                "Empty key in attribute",
+                                colon_span,
+                                "key is empty here",
+                            );
+                            continue;
+                        }
+
+                        let value_part = item[colon_pos + 1..].trim();
+
+                        let value = if value_part.starts_with('"') {
+                            if !value_part.ends_with('"') {
+                                let quote_span = Span {
+                                    lo: start_span.lo + colon_pos + 1,
+                                    hi: start_span.lo + colon_pos + 1 + value_part.len(),
+                                };
+                                self.emit_error_with_label(
+                                    "Unclosed quote in attribute value",
+                                    quote_span,
+                                    "missing closing quote",
+                                );
+                                continue;
+                            }
+                            value_part[1..value_part.len() - 1].to_string()
+                        } else if value_part.contains('"') {
+                            let quote_pos = colon_pos + 1 + value_part.find('"').unwrap();
+                            let quote_span = Span {
+                                lo: start_span.lo + quote_pos,
+                                hi: start_span.lo + quote_pos + 1,
+                            };
+                            self.emit_error_with_label(
+                                "Invalid quote placement in attribute value",
+                                quote_span,
+                                "unexpected quote here",
+                            );
+                            continue;
+                        } else {
+                            value_part.to_string()
+                        };
+                        properties.insert(key, value);
+                    }
+                } else {
+                    classes.push(trimmed.to_string());
+                }
             }
         }
-        self.pending_attrs = Attributes { id, classes };
+        self.pending_attrs = Attributes {
+            id,
+            classes,
+            properties,
+            span: total_span,
+        };
     }
 
     fn parse_note(&mut self) {
+        let start_span = self.current_span();
         // 1. Consume ":", ":", and "note"
         self.advance(); // consume first ':'
         self.advance(); // consume second ':'
@@ -362,9 +555,12 @@ impl Parser {
         }
 
         // 2. Push the Note frame onto the stack
-        self.push(Frame::Note {
-            children: Vec::new(),
-        });
+        self.push_frame(
+            Frame::Note {
+                children: Vec::new(),
+            },
+            start_span,
+        );
 
         let mut closed = false;
 
@@ -399,12 +595,21 @@ impl Parser {
         }
 
         if !closed {
-            panic!("Syntax Error: Unterminated note block. Expected closing '::'");
+            self.emit_error_with_label(
+                "Unterminated note block",
+                start_span,
+                "note started here, expected closing '::'",
+            );
         }
 
+        let end_span = self.last_span();
+
         // 4. Pop the Note frame, convert to block, and add to parent container
-        if let Some(note_frame) = self.pop() {
-            if let Some(block) = note_frame.into_block() {
+        if let Some(stack_frame) = self.pop_frame() {
+            if let Some(block) = stack_frame
+                .frame
+                .into_block(stack_frame.start_span, end_span)
+            {
                 self.add_block_to_current_frame(block);
             }
         }
@@ -423,7 +628,12 @@ impl Parser {
             return;
         }
 
-        let token = self.peek().expect("Expected a token");
+        let token = self.peek();
+
+        if token.is_none() {
+            return;
+        }
+        let token = token.unwrap();
 
         match token.token_type {
             TokenTypes::ClassBegin => {
@@ -457,7 +667,9 @@ impl Parser {
                 if self.is_note_start() {
                     self.parse_note();
                 } else if self.is_note_end() {
-                    panic!("Syntax Error: Found closing '::' without an open note block.");
+                    self.emit_error("Found closing '::' without an open note block.", token.span);
+                    self.advance();
+                    self.advance();
                 } else {
                     // It's just a regular paragraph starting with a colon
                     self.parse_paragraph();
@@ -481,8 +693,8 @@ impl Parser {
                 _ => {
                     // Fallback: look deeper in the stack for Document or Note
                     let mut found = false;
-                    for frame in self.stack.iter_mut().rev() {
-                        match frame {
+                    for sf in self.stack.iter_mut().rev() {
+                        match &mut sf.frame {
                             Frame::Document { children } | Frame::Note { children } => {
                                 children.push(block);
                                 found = true;
@@ -501,12 +713,16 @@ impl Parser {
         }
     }
     fn parse_unordered_list(&mut self) {
+        let start_span = self.current_span();
         // 1. Push the container UnorderedList frame
         let attrs = self.take_pending_attrs();
-        self.push(Frame::UnorderedList {
-            attrs,
-            children: Vec::new(),
-        });
+        self.push_frame(
+            Frame::UnorderedList {
+                attrs,
+                children: Vec::new(),
+            },
+            start_span,
+        );
 
         // 2. Loop and eat all sequential items starting with a Dash
         while !self.is_eof() {
@@ -528,16 +744,20 @@ impl Parser {
                 break;
             }
         }
-
+        let end_span = self.last_span();
         // 3. Pop the UnorderedList block and commit it to the Document
-        if let Some(list_frame) = self.pop() {
-            if let Some(block) = list_frame.into_block() {
+        if let Some(stack_frame) = self.pop_frame() {
+            if let Some(block) = stack_frame
+                .frame
+                .into_block(stack_frame.start_span, end_span)
+            {
                 self.add_block_to_current_frame(block);
             }
         }
     }
 
     fn parse_list_item(&mut self) {
+        let start_span = self.current_span();
         // 1. Consume the list marker token (the number or the dash '-')
         self.advance();
 
@@ -559,35 +779,48 @@ impl Parser {
         }
 
         // 4. Push the list item frame and parse contents
-        self.push(Frame::ListItem {
-            children: Vec::new(),
-        });
+        self.push_frame(
+            Frame::ListItem {
+                children: Vec::new(),
+            },
+            start_span,
+        );
 
         self.parse_inline();
 
-        // 5. Pop and append directly to the parent context
-        if let Some(Frame::ListItem { children }) = self.pop() {
-            let list_item = ListItem { children };
+        let end_span = self.last_span();
 
-            match self.current_mut() {
-                Some(Frame::OrderedList {
-                    children: list_children,
-                    ..
-                }) => {
-                    list_children.push(list_item);
+        // 5. Pop and append directly to the parent context
+        if let Some(stack_frame) = self.pop_frame() {
+            if let Frame::ListItem { children } = stack_frame.frame {
+                let list_item = ListItem {
+                    children,
+                    span: stack_frame.start_span.to(end_span),
+                };
+
+                match self.current_mut() {
+                    Some(Frame::OrderedList {
+                        children: list_children,
+                        ..
+                    }) => {
+                        list_children.push(list_item);
+                    }
+                    Some(Frame::UnorderedList {
+                        children: list_children,
+                        ..
+                    }) => {
+                        list_children.push(list_item);
+                    }
+                    _ => {
+                        self.emit_error("ListItem parsed outside of a list frame!", list_item.span)
+                    }
                 }
-                Some(Frame::UnorderedList {
-                    children: list_children,
-                    ..
-                }) => {
-                    list_children.push(list_item);
-                }
-                _ => panic!("Syntax Error: ListItem parsed outside of a list frame!"),
             }
         }
     }
 
     fn parse_ordered_list(&mut self) {
+        let start_span = self.current_span();
         let first_token = self.peek().expect("Expectered a orderded list token");
         let start_val: usize = first_token
             .value
@@ -595,11 +828,14 @@ impl Parser {
             .and_then(|s| s.parse().ok())
             .unwrap_or(1);
         let attrs = self.take_pending_attrs();
-        self.push(Frame::OrderedList {
-            start: start_val,
-            children: Vec::new(),
-            attrs,
-        });
+        self.push_frame(
+            Frame::OrderedList {
+                start: start_val,
+                children: Vec::new(),
+                attrs,
+            },
+            start_span,
+        );
 
         while !self.is_eof() {
             while let Some(token) = self.peek() {
@@ -618,24 +854,37 @@ impl Parser {
                 break;
             }
         }
-        if let Some(list_frame) = self.pop() {
-            if let Some(block) = list_frame.into_block() {
+        let end_span = self.last_span();
+        if let Some(stack_frame) = self.pop_frame() {
+            if let Some(block) = stack_frame
+                .frame
+                .into_block(stack_frame.start_span, end_span)
+            {
                 self.add_block_to_current_frame(block);
             }
         }
     }
 
     fn parse_paragraph(&mut self) {
+        let start_span = self.current_span();
         let attrs = self.take_pending_attrs();
-        self.push(Frame::Paragraph {
-            attrs,
-            children: Vec::new(),
-        });
+        self.push_frame(
+            Frame::Paragraph {
+                attrs,
+                children: Vec::new(),
+            },
+            start_span,
+        );
 
         self.parse_inline();
 
-        if let Some(paragraph_frame) = self.pop() {
-            if let Some(block) = paragraph_frame.into_block() {
+        let end_span = self.last_span();
+
+        if let Some(stack_frame) = self.pop_frame() {
+            if let Some(block) = stack_frame
+                .frame
+                .into_block(stack_frame.start_span, end_span)
+            {
                 self.add_block_to_current_frame(block);
             }
         }
@@ -644,6 +893,7 @@ impl Parser {
     fn parse_inline(&mut self) {
         while !self.is_eof() {
             let token = self.peek().expect("failed to get next token");
+            let start_span = token.span;
             match token.token_type {
                 TokenTypes::NewLine => {
                     self.advance(); // Consume the newline to finish the block
@@ -657,35 +907,52 @@ impl Parser {
                 }
                 TokenTypes::WhiteSpace => {
                     self.advance();
-                    self.add_inline_to_current_frame(Inline::Text(" ".to_string()));
+                    self.add_inline_to_current_frame(Inline::Text {
+                        value: " ".to_string(),
+                        span: start_span,
+                    });
                 }
                 TokenTypes::Emphasis => {
                     self.advance();
                     if let Some(Frame::Bold { .. }) = self.current_mut() {
-                        if let Some(bold_frame) = self.pop() {
-                            if let Some(inline_bold) = bold_frame.into_inline() {
+                        let end_span = self.last_span();
+                        if let Some(stack_frame) = self.pop_frame() {
+                            if let Some(inline_bold) = stack_frame
+                                .frame
+                                .into_inline(stack_frame.start_span, end_span)
+                            {
                                 self.add_inline_to_current_frame(inline_bold);
                             }
                         }
                     } else {
-                        self.push(Frame::Bold {
-                            children: Vec::new(),
-                        });
+                        self.push_frame(
+                            Frame::Bold {
+                                children: Vec::new(),
+                            },
+                            start_span,
+                        );
                     }
                 }
 
                 TokenTypes::UnderScore => {
                     self.advance();
                     if let Some(Frame::Italic { .. }) = self.current_mut() {
-                        if let Some(italic_frame) = self.pop() {
-                            if let Some(inline_italic) = italic_frame.into_inline() {
+                        if let Some(stack_frame) = self.pop_frame() {
+                            let end_span = self.last_span();
+                            if let Some(inline_italic) = stack_frame
+                                .frame
+                                .into_inline(stack_frame.start_span, end_span)
+                            {
                                 self.add_inline_to_current_frame(inline_italic);
                             }
                         }
                     } else {
-                        self.push(Frame::Italic {
-                            children: Vec::new(),
-                        });
+                        self.push_frame(
+                            Frame::Italic {
+                                children: Vec::new(),
+                            },
+                            start_span,
+                        );
                     }
                 }
                 TokenTypes::BackTick => {
@@ -700,12 +967,12 @@ impl Parser {
                         }
                     }
                     if let Some(tok) = self.advance() {
-                        // 1. Extract and clone the value, binding it to an owned variable.
-                        //    This immediately ends the borrow on `tok`!
                         let val_string = tok.value.clone().unwrap_or_default();
-
-                        // 2. Now self is completely free to be borrowed mutably again!
-                        self.add_inline_to_current_frame(Inline::Text(val_string));
+                        let span = tok.span;
+                        self.add_inline_to_current_frame(Inline::Text {
+                            value: val_string,
+                            span,
+                        });
                     }
                 }
                 TokenTypes::AnchorValueStart => {
@@ -715,7 +982,8 @@ impl Parser {
                     // For now, treat unknown tokens as text
                     if let Some(tok) = self.advance() {
                         let text = tok.clone().value.unwrap_or("".to_string());
-                        self.add_inline_to_current_frame(Inline::Text(text));
+                        let span = tok.span;
+                        self.add_inline_to_current_frame(Inline::Text { value: text, span });
                     }
                 }
             }
@@ -756,15 +1024,21 @@ impl Parser {
 
         if !closed {
             // Your custom compiler error handling!
-            panic!(
-                "Syntax Error: Unterminated inline code segment. Expected a closing backtick '`'."
+            self.emit_error_with_label(
+                "Unterminated inline code segment.",
+                self.current_span(),
+                "Expected a closing backtick '`'.",
             );
         }
-
-        self.add_inline_to_current_frame(Inline::InlineCode { code: content });
+        let end_span = self.last_span();
+        self.add_inline_to_current_frame(Inline::InlineCode {
+            code: content,
+            span: end_span,
+        });
     }
 
     fn parse_header(&mut self) {
+        let start_span = self.current_span();
         let mut level = 0;
         while let Some(token) = self.peek() {
             if matches!(token.token_type, TokenTypes::Header) {
@@ -785,16 +1059,24 @@ impl Parser {
             }
         }
         let attrs = self.take_pending_attrs();
-        self.push(Frame::Header {
-            level,
-            attrs,
-            children: Vec::new(),
-        });
+        self.push_frame(
+            Frame::Header {
+                level,
+                attrs,
+                children: Vec::new(),
+            },
+            start_span,
+        );
 
         self.parse_inline();
 
-        if let Some(header_frame) = self.pop() {
-            if let Some(block) = header_frame.into_block() {
+        let end_span = self.last_span();
+
+        if let Some(stack_frame) = self.pop_frame() {
+            if let Some(block) = stack_frame
+                .frame
+                .into_block(stack_frame.start_span, end_span)
+            {
                 if let Some(Frame::Document { children }) = self.current_mut() {
                     children.push(block);
                 }
@@ -803,12 +1085,13 @@ impl Parser {
     }
 
     fn parse_image(&mut self) {
+        let start_span = self.last_span();
         self.advance();
         if !matches!(
             self.peek().map(|t| &t.token_type),
             Some(TokenTypes::AnchorValueStart)
         ) {
-            panic!("Syntax Error: Expected '[' after '!' to begin an image.");
+            self.emit_error("Expected '[' after '!' to begin an image.", start_span);
         }
         self.advance();
 
@@ -816,21 +1099,42 @@ impl Parser {
         let mut closed_braket = false;
 
         while !self.is_eof() {
-            let token = self.peek().expect("Expected token in image alt");
-            if matches!(token.token_type, TokenTypes::AnchorValueStart) {
-                panic!("Syntax Error: Nested brackets are not allowed inside image alt text!");
-            }
-            if matches!(token.token_type, TokenTypes::Image) {
-                if let Some(next_tok) = self.tokens.get(self.cursor + 1) {
-                    if matches!(next_tok.token_type, TokenTypes::AnchorValueStart) {
-                        panic!(
-                            "Syntax Error: Cannot embed an image inside another image's alt text!"
-                        );
-                    }
-                }
+            // Take the token and clone what we need before any mutable borrow
+            let token_span = self.peek().map(|t| t.span).unwrap_or_default();
+            let token_type = self.peek().map(|t| t.token_type.clone());
+            let is_anchor_value_start = matches!(token_type, Some(TokenTypes::AnchorValueStart));
+            let is_image = matches!(token_type, Some(TokenTypes::Image));
+            let is_anchor_value_end = matches!(token_type, Some(TokenTypes::AnchorValueEnd));
+
+            // Check for next token without holding a borrow
+            let has_next_anchor = if is_image {
+                self.tokens
+                    .get(self.cursor + 1)
+                    .map(|t| matches!(t.token_type, TokenTypes::AnchorValueStart))
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+
+            if is_anchor_value_start {
+                self.emit_error(
+                    "Nested brackets are not allowed inside image alt text!",
+                    token_span,
+                );
+                self.advance();
+                continue;
             }
 
-            if matches!(token.token_type, TokenTypes::AnchorValueEnd) {
+            if is_image && has_next_anchor {
+                self.emit_error(
+                    "Cannot embed an image inside another image's alt text!",
+                    token_span,
+                );
+                self.advance();
+                continue;
+            }
+
+            if is_anchor_value_end {
                 self.advance();
                 closed_braket = true;
                 break;
@@ -840,7 +1144,6 @@ impl Parser {
                 }
             }
         }
-
         if !closed_braket {
             panic!("Syntax Error: Unterminated image alt tag. Expected ']'");
         }
@@ -870,41 +1173,56 @@ impl Parser {
         if !closed_paren {
             panic!("Synta Error: Unterminated image source tag. Expected ')'");
         }
-
+        let end_span = self.last_span();
         let attrs = self.take_pending_attrs();
 
         let image = Inline::Image {
             alt: alt_text,
             src: src_url,
             attrs,
+            span: start_span.to(end_span),
         };
 
         self.add_inline_to_current_frame(image);
     }
 
     fn parse_link(&mut self) {
+        let start_span = self.current_span();
         self.advance();
         let attrs = self.take_pending_attrs();
-        self.push(Frame::Link {
-            url: String::new(),
-            children: Vec::new(),
-            attrs,
-            //state: LinkState::ParsingChildren,
-        });
+        self.push_frame(
+            Frame::Link {
+                url: String::new(),
+                children: Vec::new(),
+                attrs,
+                //state: LinkState::ParsingChildren,
+            },
+            start_span,
+        );
         self.parse_inline();
         if !matches!(
             self.peek().map(|t| &t.token_type),
             Some(TokenTypes::AnchorValueEnd)
         ) {
-            panic!("Syntax Error: Expected ']' to close link text");
+            self.emit_error("Expected ']' to close link text", self.current_span());
+            self.pop_frame();
+            return;
         }
         self.advance();
-        let mut link_frame = self.pop().expect("Expected Link Frome on stack");
+        let stack_frame = self.pop_frame();
+        if stack_frame.is_none() {
+            self.emit_error("Expected Link Frome on stack", start_span);
+        }
+        let mut stack_frame = stack_frame.unwrap();
         if !matches!(
             self.peek().map(|t| &t.token_type),
             Some(TokenTypes::AnchorURLStart)
         ) {
-            panic!("Syntax Error: Expected '(' contaning link URL after ']'")
+            self.emit_error(
+                "Expected '(' contaning link URL after ']'",
+                self.current_span(),
+            );
+            return;
         }
         self.advance();
         let mut url_str = String::new();
@@ -923,20 +1241,27 @@ impl Parser {
         }
 
         if !closed_paren {
-            panic!("Syntax Error: Unterminated link URL.Expected ')'");
+            self.emit_error("Unterminated link URL.Expected ')'", self.current_span());
+            return;
         }
-        if let Frame::Link { ref mut url, .. } = link_frame {
+
+        let end_span = self.last_span();
+
+        if let Frame::Link { ref mut url, .. } = stack_frame.frame {
             *url = url_str;
         }
-        if let Some(inline_link) = link_frame.into_inline() {
+        if let Some(inline_link) = stack_frame
+            .frame
+            .into_inline(stack_frame.start_span, end_span)
+        {
             self.add_inline_to_current_frame(inline_link);
         }
     }
 
     fn parse_code_block(&mut self) {
+        let start_span = self.current_span();
         let mut open_count = 0;
 
-        // 1. First, count the opening backticks completely
         while let Some(token) = self.peek() {
             if matches!(token.token_type, TokenTypes::BackTick) {
                 open_count += 1;
@@ -946,12 +1271,14 @@ impl Parser {
             }
         }
 
-        // 2. Validate the opening backticks OUTSIDE the counting loop
         if open_count != 2 {
-            panic!("Syntax Error: Block code must start with exactly two backticks '``'");
+            self.emit_error(
+                "Block code must start with exactly two backticks '``'",
+                start_span,
+            );
+            return;
         }
 
-        // 3. Parse the language name on the rest of the starting line
         let mut language = String::new();
         while let Some(token) = self.peek() {
             if matches!(token.token_type, TokenTypes::NewLine) {
@@ -969,11 +1296,13 @@ impl Parser {
             Some(language.trim().to_string())
         };
 
-        // 4. Push the CodeBlock frame onto the stack
-        self.push(Frame::CodeBlock {
-            language: language_opt,
-            content: String::new(),
-        });
+        self.push_frame(
+            Frame::CodeBlock {
+                language: language_opt,
+                content: String::new(),
+            },
+            start_span,
+        );
 
         // 5. Gather the raw content until we see the closing "``"
         let mut code_content = String::new();
@@ -1010,17 +1339,20 @@ impl Parser {
         }
 
         if !closed {
-            panic!("Syntax Error: Unterminated code block. Expected '``'");
+            self.emit_error("Unterminated code block. Expected '``'", start_span);
         }
 
+        let end_span = self.last_span();
+
         // 6. Pop the Frame, convert it to Block::CodeBlock, and add to the Document
-        if let Some(Frame::CodeBlock { language, .. }) = self.pop() {
-            let block = Block::CodeBlock {
-                language,
-                code: code_content,
-            };
-            if let Some(Frame::Document { children }) = self.current_mut() {
-                children.push(block);
+        if let Some(stack_frame) = self.pop_frame() {
+            if let Frame::CodeBlock { language, .. } = stack_frame.frame {
+                let block = Block::CodeBlock {
+                    span: stack_frame.start_span.to(end_span),
+                    language,
+                    code: code_content,
+                };
+                self.add_block_to_current_frame(block);
             }
         }
     }
