@@ -1,17 +1,19 @@
+use crate::source_map::span::Span;
+
 #[derive(Debug, Clone)]
 pub struct Token {
+    pub span: Span,
     pub token_type: TokenTypes,
     pub value: Option<String>,
 }
 impl Token {
-    pub fn new(token_type: TokenTypes, value: Option<String>) -> Token {
+    pub fn new(token_type: TokenTypes, value: Option<String>, span: Span) -> Token {
         Token {
             token_type: token_type,
             value: value,
+            span,
         }
     }
-
-    
 }
 
 #[derive(Debug, PartialEq)]

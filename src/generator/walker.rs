@@ -27,6 +27,11 @@ impl Compiler {
             let class_string = attrs.classes.join(" ");
             html_attrs.push_str(&format!(" class=\"{}\"", class_string));
         }
+        if !attrs.properties.is_empty() {
+            for (key, value) in &attrs.properties {
+                html_attrs.push_str(&format!(" {}=\"{}\" ", key, value));
+            }
+        }
 
         html_attrs
     }
@@ -40,20 +45,21 @@ impl Compiler {
 
     fn walk_inline(&self, inline: &Inline) -> String {
         match inline {
-            Inline::Text(text) => text.clone(),
-            Inline::Bold { children } => {
+            Inline::Text { value, .. } => value.clone(),
+            Inline::Bold { children, .. } => {
                 format!("<strong>{}</strong>", self.walk_inlines(children))
             }
-            Inline::Italic { children } => {
+            Inline::Italic { children, .. } => {
                 format!("<em>{}</em>", self.walk_inlines(children))
             }
-            Inline::InlineCode { code } => {
+            Inline::InlineCode { code, .. } => {
                 format!("<code>{}</code>", code)
             }
             Inline::Link {
                 url,
                 children,
                 attrs,
+                ..
             } => {
                 let attr_str = self.format_attrs(attrs);
                 format!(
@@ -63,7 +69,9 @@ impl Compiler {
                     self.walk_inlines(children)
                 )
             }
-            Inline::Image { alt, src, attrs } => {
+            Inline::Image {
+                alt, src, attrs, ..
+            } => {
                 let attr_str = self.format_attrs(attrs);
                 format!("<img src=\"{}\" alt=\"{}\" {}>", src, alt, attr_str)
             }
@@ -72,7 +80,9 @@ impl Compiler {
 
     fn walk_block(&self, block: Block) -> String {
         match block {
-            Block::Paragraph { attrs, children } => {
+            Block::Paragraph {
+                attrs, children, ..
+            } => {
                 let attr_string = self.format_attrs(&attrs);
                 let content = self.walk_inlines(&children);
                 format!("<p{}>{}</p>", attr_string, content)
@@ -81,12 +91,13 @@ impl Compiler {
                 attrs,
                 level,
                 children,
+                ..
             } => {
                 let attr_string = self.format_attrs(&attrs);
                 let content = self.walk_inlines(&children);
                 format!("<h{}{}>{}</h{}>", level, attr_string, content, level)
             }
-            Block::CodeBlock { language, code } => {
+            Block::CodeBlock { language, code, .. } => {
                 let class_attr = match language {
                     Some(lang) => format!(" class=\"language-{}\"", lang),
                     None => String::new(),
@@ -94,7 +105,7 @@ impl Compiler {
 
                 format!("<pre><code{}>{}</code></pre>", class_attr, code)
             }
-            Block::Note { children } => {
+            Block::Note { children, .. } => {
                 let mut note_content = String::new();
                 for inner_block in children {
                     note_content.push_str(&self.walk_block(inner_block));
@@ -102,7 +113,9 @@ impl Compiler {
                 }
                 format!("<div class=\"tim-note\">\n{}</div>", note_content)
             }
-            Block::UnorderedList { attrs, children } => {
+            Block::UnorderedList {
+                attrs, children, ..
+            } => {
                 let attr_str = self.format_attrs(&attrs);
                 let mut list_items_html = String::new();
                 for item in children {
@@ -115,6 +128,7 @@ impl Compiler {
                 attrs,
                 start,
                 children,
+                ..
             } => {
                 let mut attr_string = self.format_attrs(&attrs);
                 if start != 1 {
@@ -127,7 +141,6 @@ impl Compiler {
                 }
                 format!("<ol{}>\n{}</ol>", attr_string, list_items_html)
             }
-            
         }
     }
 

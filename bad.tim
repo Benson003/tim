@@ -1,0 +1,104 @@
+{invalid_attrs, missing_close
+# This should error: missing closing '}'
+
+{id:test, class:"container main", data-user:"123"}
+## This should work: proper attributes above a header
+
+{test-id, class:"error test", invalid: key without colon}
+## This should error: invalid key-value pair
+
+{duplicate-id, class:"test"}
+{duplicate-id, class:"duplicate"}
+## This should error: duplicate ID
+
+{empty-key, :"value without key"}
+## This should error: empty key
+
+{unclosed-quote, class:"unclosed value}
+## This should error: unclosed quote
+
+{invalid-quote, class:"valid" invalid:"quote" here}
+## This should error: invalid quote placement
+
+{note-test, class:"note-example"}
+::note
+This is a note with some content.
+- List item 1
+- List item 2
+
+:: invalid
+This should error: '::' without 'note'
+
+::
+This should error: closing '::' without an open note block
+
+{code-block, language:rust}
+``
+fn main() {
+    println!("Hello");
+}
+``
+This should work: code block with language
+
+``invalid
+This should error: code block with invalid opening
+
+{empty-attrs,}
+## This should work: empty attributes after comma
+
+{id_with_underscore, class:"test_class", data-value:"underscore_test"}
+This is a paragraph with attributes above it
+
+{image-test}
+![alt text](image.png)
+This should work: image with alt and src
+
+{link-test}
+[link text](https://example.com)
+This should work: link
+
+{nested-formatting}
+This is **bold** and *italic* and `inline code`
+This should work: inline formatting
+
+{image-error}
+![alt text(without closing paren
+This should error: unterminated image src
+
+{link-error}
+[link text(without closing paren
+This should error: unterminated link URL
+
+{list-test, class:"list-example"}
+- Item 1
+- Item 2
+- Item 3
+
+This should work: unordered list with attributes
+
+{ordered-list, start:5}
+1. First
+2. Second
+3. Third
+
+This should work: ordered list starting at 5
+
+{multiple-properties, class:"multi", data-test:"value", id:"multi-test", aria-label:"label"}
+This paragraph has multiple properties
+
+{trailing-comma, class:"test",}
+This should work: trailing comma is handled
+
+{weird:chars, class:"special!@#$%", data-unicode:"🎉"}
+This tests special characters in attributes
+
+{empty-class, class:""}
+This should work: empty class value
+
+{multi-word-class, class:"class1 class2 class3", id:"multi-word"}
+This tests multi-word class values
+
+# This is a line that might be treated as text
+This line has no attributes
+
+{empty-block}

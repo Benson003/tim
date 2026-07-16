@@ -1,14 +1,18 @@
 mod cmd;
+mod diagnostics;
 mod generator;
 mod parser;
+mod source_map;
 mod tokenizer;
 
 use std::fs;
 
 use crate::cmd::cli::CliConfig;
+use crate::diagnostics::diagnostics::DiagnosticPrinter;
 use crate::generator::template::TemplateEngine;
 use crate::generator::walker::Compiler;
 use crate::parser::parser::Parser;
+use crate::source_map::source_map::SourceMap;
 use crate::tokenizer::tokenizer::TokenList;
 
 fn main() {
@@ -22,19 +26,45 @@ fn main() {
         }
     };
 
+    let source_map = SourceMap::new(content);
+    let printer = DiagnosticPrinter::new(&source_map);
+
     let mut lexer = TokenList::new();
-    lexer.tokenize(&content);
+    lexer.tokenize(&source_map);
     let mut parser = Parser::new(lexer.tokens);
     let ast = parser.parse();
 
-    let compiler = Compiler::new();
-    let mut compiled_html = compiler.compile(ast);
+    let mut diagnostics = lexer.diagnostics;
+    diagnostics.extend(parser.diagnostics);
+
+    let errors: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| matches!(d.severity, diagnostics::diagnostics::Severity::Error))
+        .collect();
+    let warnings: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| matches!(d.severity, diagnostics::diagnostics::Severity::Warning))
+        .collect();
+
+    // Print warnings first
+    if !warnings.is_empty() {
+        printer.print_multiple(&warnings);
+    }
+
+    // Print errors
+    if !errors.is_empty() {
+        printer.print_multiple(&errors);
+        std::process::exit(1);
+    }
 
     if config.dry_run {
-        println!("--- GENERATED CODE ---");
-        println!("{:#?}", compiled_html);
+        println!("--- GENERATED AST ---");
+        println!("{:#?}", ast);
         return;
     }
+
+    let compiler = Compiler::new();
+    let mut compiled_html = compiler.compile(ast);
 
     if let Some(ref tag) = config.wrap_tag {
         compiled_html = format!("<{}>\n{}</{}>", tag, compiled_html, tag);
