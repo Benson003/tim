@@ -350,11 +350,6 @@ impl TokenList {
                     let value = std::mem::take(&mut buffer);
                     let end = chars.peek().map(|&(pos, _)| pos).unwrap_or(source.len());
                     let span = Span::new(start, end);
-                    self.push_warning(
-                        "Unexpected charater encoutered",
-                        span,
-                        Some(format!("Character:{}", ch).as_str()),
-                    );
                     self.append_tokens(Token::new(TokenTypes::Text, Some(value), span));
                 }
             }
