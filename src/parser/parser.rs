@@ -70,6 +70,10 @@ pub struct Parser {
     tokens: Vec<Token>,
     cursor: usize,
     stack: Vec<StackFrame>,
+    css: Vec<String>,
+    js: Vec<String>,
+    meta: Vec<HashMap<String, String>>,
+    title: String,
     pending_attrs: Attributes,
     global_ids: HashSet<String>,
     pub diagnostics: Vec<Diagnostic>,
@@ -196,6 +200,10 @@ impl Parser {
             pending_attrs: Attributes::default(),
             global_ids: HashSet::new(),
             diagnostics: Vec::new(),
+            title: String::new(),
+            meta: Vec::new(),
+            js: Vec::new(),
+            css: Vec::new(),
         }
     }
 
@@ -538,6 +546,51 @@ impl Parser {
         };
     }
 
+    fn parse_head_content(&mut self) {
+        let start_span = self.current_span();
+        self.advance();
+        let mut tag = String::new();
+        while let Some(tok) = self.peek() {
+            if matches!(tok.token_type, TokenTypes::UniqueIDBegin) {
+                self.advance();
+                break;
+            } else {
+                if matches!(tok.token_type, TokenTypes::Text) {
+                    let val = tok.value.clone().unwrap_or_default();
+                    tag.push_str(val.as_str());
+                    self.advance();
+                }
+            }
+        }
+
+        while !self.is_eof() {
+            match tag.as_str() {
+                "css" => {
+                    self.advance();
+                }
+                "js" => {
+                    self.advance();
+                    println!("found css path");
+                    return;
+                }
+                "meta" => {
+                    self.advance();
+                    println!("found css path");
+                    return;
+                }
+                _ => {
+                    self.advance();
+                    let current = self.current_span();
+                    self.emit_error(
+                        "Syntax Error:Not a valid @directive",
+                        start_span.to(current),
+                    );
+                    return;
+                }
+            }
+        }
+    }
+
     fn parse_note(&mut self) {
         let start_span = self.current_span();
         // 1. Consume ":", ":", and "note"
@@ -661,6 +714,10 @@ impl Parser {
 
             TokenTypes::Dash => {
                 self.parse_unordered_list();
+            }
+
+            TokenTypes::At => {
+                self.parse_head_content();
             }
 
             TokenTypes::Colon => {
