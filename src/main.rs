@@ -6,6 +6,7 @@ mod source_map;
 mod tokenizer;
 
 use std::fs;
+use std::path::Path;
 
 use crate::cmd::cli::CliConfig;
 use crate::diagnostics::diagnostics::DiagnosticPrinter;
@@ -71,9 +72,12 @@ fn main() {
     }
 
     let final_output = if config.output_file.is_some() {
-        let mut name = config.input_file.clone();
-        let _ = name.split_off(&config.input_file.len() - 4);
-        TemplateEngine::wrap_to_full_page(&name, &compiled_html)
+        let path = Path::new(&config.input_file);
+        let file_stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Compiled Document");
+        TemplateEngine::wrap_to_full_page(file_stem, &compiled_html)
     } else {
         compiled_html
     };
