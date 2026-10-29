@@ -71,7 +71,9 @@ fn main() {
     }
 
     let final_output = if config.output_file.is_some() {
-        TemplateEngine::wrap_to_full_page("Compiled Document", &compiled_html)
+        let mut name = config.input_file.clone();
+        let _ = name.split_off(&config.input_file.len() - 4);
+        TemplateEngine::wrap_to_full_page(&name, &compiled_html)
     } else {
         compiled_html
     };

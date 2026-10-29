@@ -11,7 +11,6 @@ impl Compiler {
         let mut result = String::new();
         for block in doc.children {
             result.push_str(&self.walk_block(block));
-            result.push('\n');
         }
         result
     }
@@ -45,16 +44,16 @@ impl Compiler {
 
     fn walk_inline(&self, inline: &Inline) -> String {
         match inline {
-            Inline::Text { value, .. } => value.clone(),
+            Inline::Text { value, .. } => value.clone().trim().to_string(),
             Inline::Bold { children, .. } => {
                 format!("<strong>{}</strong>", self.walk_inlines(children))
+                    .trim()
+                    .to_string()
             }
-            Inline::Italic { children, .. } => {
-                format!("<em>{}</em>", self.walk_inlines(children))
-            }
-            Inline::InlineCode { code, .. } => {
-                format!("<code>{}</code>", code)
-            }
+            Inline::Italic { children, .. } => format!("<em>{}</em>", self.walk_inlines(children))
+                .trim()
+                .to_string(),
+            Inline::InlineCode { code, .. } => format!("<code>{}</code>", code).trim().to_string(),
             Inline::Link {
                 url,
                 children,
@@ -68,12 +67,16 @@ impl Compiler {
                     attr_str,
                     self.walk_inlines(children)
                 )
+                .trim()
+                .to_string()
             }
             Inline::Image {
                 alt, src, attrs, ..
             } => {
                 let attr_str = self.format_attrs(attrs);
                 format!("<img src=\"{}\" alt=\"{}\" {}>", src, alt, attr_str)
+                    .trim()
+                    .to_string()
             }
         }
     }
@@ -86,6 +89,8 @@ impl Compiler {
                 let attr_string = self.format_attrs(&attrs);
                 let content = self.walk_inlines(&children);
                 format!("<p{}>{}</p>", attr_string, content)
+                    .trim()
+                    .to_string()
             }
             Block::Header {
                 attrs,
@@ -96,6 +101,8 @@ impl Compiler {
                 let attr_string = self.format_attrs(&attrs);
                 let content = self.walk_inlines(&children);
                 format!("<h{}{}>{}</h{}>", level, attr_string, content, level)
+                    .trim()
+                    .to_string()
             }
             Block::CodeBlock { language, code, .. } => {
                 let class_attr = match language {
@@ -104,14 +111,17 @@ impl Compiler {
                 };
 
                 format!("<pre><code{}>{}</code></pre>", class_attr, code)
+                    .trim()
+                    .to_string()
             }
             Block::Note { children, .. } => {
                 let mut note_content = String::new();
                 for inner_block in children {
                     note_content.push_str(&self.walk_block(inner_block));
-                    note_content.push('\n');
                 }
                 format!("<div class=\"tim-note\">\n{}</div>", note_content)
+                    .trim()
+                    .to_string()
             }
             Block::UnorderedList {
                 attrs, children, ..
@@ -120,9 +130,10 @@ impl Compiler {
                 let mut list_items_html = String::new();
                 for item in children {
                     list_items_html.push_str(&self.walk_list_item(item));
-                    list_items_html.push('\n');
                 }
                 format!("<ul{}>\n{}</ul>", attr_str, list_items_html)
+                    .trim()
+                    .to_string()
             }
             Block::OrderedList {
                 attrs,
@@ -137,9 +148,10 @@ impl Compiler {
                 let mut list_items_html = String::new();
                 for item in children {
                     list_items_html.push_str(&self.walk_list_item(item));
-                    list_items_html.push('\n');
                 }
                 format!("<ol{}>\n{}</ol>", attr_string, list_items_html)
+                    .trim()
+                    .to_string()
             }
         }
     }

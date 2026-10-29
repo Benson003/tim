@@ -3,8 +3,6 @@
 
 A Markdown-inspired markup language built around deterministic parsing and explicit document structure.
 
----
-
 ## Why?
 
 Markdown is excellent for writing, but modern documents often need more structure than traditional Markdown can express without embedded HTML.
@@ -19,7 +17,6 @@ Instead, it provides a well-defined grammar for authors and compiler developers 
 
 ::
 
----
 
 ## Features
 
@@ -39,7 +36,6 @@ Instead, it provides a well-defined grammar for authors and compiler developers 
 - Classes
 - Note blocks
 
----
 
 ## Attributes
 
@@ -53,7 +49,7 @@ This header has the ID `hero` and the classes `centered` and `dark`.
 {_, warning, rounded}
 This paragraph has no ID, but it has two classes.
 
----
+
 
 ## Lists
 
@@ -72,7 +68,7 @@ This paragraph has no ID, but it has two classes.
 3. Parse the document
 4. Render the output
 
----
+
 
 ## Notes
 
@@ -92,7 +88,7 @@ Everything inside belongs to the note until the closing delimiter.
 
 ::
 
----
+
 
 ## Code
 
@@ -115,21 +111,21 @@ Nothing inside here should be parsed as markup.
 # Not a heading
 ``
 
----
+
 
 ## Links
 
 Visit the project homepage.
 
-[GitHub](https://github.com/example/tim)
+[GitHub](https://github.com/Benson003/tim)
 
----
+
 
 ## Images
 
 ![Project Logo](logo.png)
 
----
+
 
 ## Final Thoughts
 
